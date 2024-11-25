@@ -561,6 +561,7 @@ void processBlhFrame()
     float    currentf    = (float)(((((uint32_t)escRxBuffer[3]) << 8) | ((uint32_t)escRxBuffer[4])) * 10); // convert from 0.01A to ma
     uint32_t consumption = (((uint32_t)escRxBuffer[5]) << 8) | ((uint32_t)escRxBuffer[6]);                 // in mah
     uint32_t rpm         = ((((uint32_t)escRxBuffer[7])) << 8) | ((uint32_t)escRxBuffer[8]);               // in 100rpm
+    uint16_t power;
 
     if (config.pinVolt[2] == 255)
     { //  we discard temp from esc
@@ -579,9 +580,14 @@ void processBlhFrame()
     }
 
     if (config.pinRpm == 255)
-    {                                                                                      // when rpm pin is defined, we discard rpm from esc
-        sent2Core0(RPM, (int32_t)(((float)rpm) * config.rpmMultiplicator * 100.0 / 60.0)); // 0.60 because we convert from 100t/min in HZ
+    {                                                                               // when rpm pin is defined, we discard rpm from esc
+        sent2Core0(RPM, (int32_t)(((float)rpm) * config.rpmMultiplicator * 100.0)); // convert from 100rpm to rpm
     }
+
+    sent2Core0(RESERVE2, (int32_t)((float)voltage * config.scaleVolt1 - config.offset1));
+
+    power = (voltage / 1000) * (currentf / 1000);
+    sent2Core0(RESERVE3, (int32_t)consumption);
 
     // printf("Esc Volt=%i   current=%i  consumed=%i  temp1=%i   rpm=%i\n", voltage , (int) currentf, consumption , temp  , rpm);
 }

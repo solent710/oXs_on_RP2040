@@ -180,6 +180,9 @@ void GPS::setupGps(void)
     {
         gpsInitRx(); // this part is common for both types of gps but can be done immediately for Cadis of when Ublox is configured externally
     }
+
+    GPS_home_lat = 0;
+    GPS_home_lon = 0;
 }
 
 void GPS::readGps()
@@ -200,6 +203,7 @@ void gpsPioRxHandlerIrq()
 { // when a byte is received on the PIO GPS, read the pio fifo and push the data to a queue (to be processed in the main loop)
     // clear the irq flag
     irq_clear(PIO1_IRQ_0);
+
     while (!pio_sm_is_rx_fifo_empty(gpsPio, gpsSmRx))
     {                                                  // when some data have been received
         uint8_t c = pio_sm_get(gpsPio, gpsSmRx) >> 24; // read the data
@@ -209,6 +213,9 @@ void gpsPioRxHandlerIrq()
 
 void GPS::gpsInitRx()
 {
+    uint8_t dummy;
+    uint    gpsOffsetRx;
+
     gpio_deinit(config.pinGpsRx);
     gpio_init(config.pinGpsRx);          // configure TX signal on gpio as input/output
     gpio_set_dir(config.pinGpsRx, true); // set on output
@@ -220,6 +227,7 @@ void GPS::gpsInitRx()
     // set an irq on pio to handle a received byte
     irq_set_exclusive_handler(PIO1_IRQ_0, gpsPioRxHandlerIrq);
     irq_set_enabled(PIO1_IRQ_0, true);
+
     if (pio_can_add_program(gpsPio, &uart_rx_program) == false)
     {
         printf("Error: can't add pio program for GPS Rx\n");
@@ -229,14 +237,18 @@ void GPS::gpsInitRx()
             ;
         } // stop the program
     }
-    uint gpsOffsetRx = pio_add_program(gpsPio, &uart_rx_program);
-    printf("uart rx program init will be performed\n");
+
+    gpsOffsetRx = pio_add_program(gpsPio, &uart_rx_program);
+
+    // printf("uart rx program init will be performed\n");
     uart_rx_program_init(gpsPio, gpsSmRx, gpsOffsetRx, config.pinGpsTx, 38400);
-    printf("uart rx program init has been be performed\n");
+
+    // printf("uart rx program init has been be performed\n");
     busy_wait_us(1000);
-    uint8_t dummy;
+
     while (!queue_is_empty(&gpsRxQueue))
         queue_try_remove(&gpsRxQueue, &dummy);
+
     _step = 0;
 }
 
@@ -487,6 +499,7 @@ bool GPS::parseGpsUblox(void) // move the data from buffer to the different fiel
     new_position         = false;
     new_speed            = false;
     static bool next_fix = false;
+
     // printf(" %X\n", _msg_id);
     switch (_msg_id)
     {
@@ -663,8 +676,9 @@ void GPS::setupGpsCasic(void){    // for casic gps
 }  // end setupGPS
 */
 
+// read and process GPS data. do not send them for casic gps
 void GPS::readGpsCasic()
-{ // read and process GPS data. do not send them.// for casic gps
+{
     uint8_t        data;
     static uint8_t _idx;
 
@@ -686,30 +700,35 @@ void GPS::readGpsCasic()
                 if (0xBA == data)
                     _step++; // Casic sync char 1
                 break;
+
             case 1: // Sync char 2 (0xCE)
                 if (0xCE == data)
                     _step++;
                 else
                     _step = 0;
                 break;
+
             case 2: // Payload length (part 1)
                 if (0x50 == data)
                     _step++;
                 else
                     _step = 0;
                 break;
+
             case 3: // Payload length (part 2)
                 if (0x00 == data)
                     _step++;
                 else
                     _step = 0;
                 break;
+
             case 4: // Class
                 if (0x01 == data)
                     _step++;
                 else
                     _step = 0;
                 break;
+
             case 5: // Sub class
                 if (0x03 == data)
                 {
@@ -721,19 +740,20 @@ void GPS::readGpsCasic()
                     _step = 0;
                 }
                 break;
+
             case 6: // payload and checksum
                 // printf(" size of casic_nav_pv_info %i", (int) sizeof(casic_nav_pv_info) );
                 if (_idx < sizeof(casic_nav_pv_info))
                 {
                     _casicBuffer.bytes[_idx++] = data; // save the content of the payload
-                                                       //                printer->print(data , HEX);
+                    // printer->print(data , HEX);
                     // if (_idx == 11) printf("pos %x\n",_casicBuffer.bytes[_idx -1]);
                 }
                 if (_idx == sizeof(casic_nav_pv_info))
                 {
                     parseGpsCasic();
                     _step = 0;
-                    //                printer->println(" ");
+                    // printer->println(" ");
                 }
                 break;
 
@@ -743,6 +763,12 @@ void GPS::readGpsCasic()
 
 bool GPS::parseGpsCasic(void) // move the data from buffer to the different fields
 {
+    int32_t casicLat;
+    int32_t casicLon;
+    int32_t off_x;
+    int32_t off_y;
+    float   dlat;
+    float   dlong;
 
     /*
     printf("sat : %x  posValid %x  height %f\n", _casicBuffer.nav_pv.numSV, _casicBuffer.nav_pv.velValid, _casicBuffer.nav_pv.height);
@@ -761,7 +787,9 @@ bool GPS::parseGpsCasic(void) // move the data from buffer to the different fiel
     */
 
     gpsInstalled = true;
+
     sent2Core0(NUMSAT, _casicBuffer.nav_pv.numSV);
+
     // fields[NUMSAT].available = true;
     if (_casicBuffer.nav_pv.velValid >= 6)
     {
@@ -769,16 +797,18 @@ bool GPS::parseGpsCasic(void) // move the data from buffer to the different fiel
         GPS_speed_2dAvailable = true;
     }
 
-    if (_casicBuffer.nav_pv.velValid >= 7)
+    if (_casicBuffer.nav_pv.velValid == CASIC_FIX_3D || _casicBuffer.nav_pv.velValid == CASIC_FIX_GNSS_DR)
     {
-        GPS_fix = true;
-        sent2Core0(NUMSAT, _casicBuffer.nav_pv.numSV + 100);        // add 100 if 3d fix available
+        GPS_fix_type = FIX_3D; // we must use uBlox system here
+
+        sent2Core0(NUMSAT, _casicBuffer.nav_pv.numSV);
         sent2Core0(GROUNDSPEED, _casicBuffer.nav_pv.speed3D * 100); // in ublox = cm/sec, in CASIC float M/sec
-        int32_t casicLat = (int32_t)(_casicBuffer.nav_pv.lat * 10000000);
-        int32_t casicLon = (int32_t)(_casicBuffer.nav_pv.lon * 10000000);
+        casicLat = (int32_t)(_casicBuffer.nav_pv.lat * 10000000);
+        casicLon = (int32_t)(_casicBuffer.nav_pv.lon * 10000000);
 
         sent2Core0(LONGITUDE, casicLon); // in Ublox = degree with 7 decimals, in CASIC float degree
         sent2Core0(LATITUDE, casicLat);  // in Ublox = degree with 7 decimals, in CASIC float degree
+
         if (_casicBuffer.nav_pv.height > 0)
         {
             sent2Core0(ALTITUDE, _casicBuffer.nav_pv.height * 100); // in cm : in Ublox = mm , in CASIC float m
@@ -787,12 +817,9 @@ bool GPS::parseGpsCasic(void) // move the data from buffer to the different fiel
         {
             sent2Core0(ALTITUDE, 0);
         }
+
         sent2Core0(HEADING, _casicBuffer.nav_pv.heading * 100); // in Ublox = deg with 5 decimals,  in CASIC = float degree
-        // fields[GROUNDSPEED].available  = true;
-        // fields[LONGITUDE].available = true;
-        // fields[LATITUDE].available = true;
-        // fields[ALTITUDE].available = true;
-        // fields[HEADING].available = true;
+
         if (GPS_home_lat == 0)
         {
             GPS_home_lat         = casicLat; // save home position
@@ -802,17 +829,20 @@ bool GPS::parseGpsCasic(void) // move the data from buffer to the different fiel
             GPS_cumulativeDistCm = 0;
             GPS_scale            = cosf(GPS_home_lat * 1.0e-7f * DEG_TO_RAD_FOR_GPS); // calculate scale factor based on latitude
         }
-        // Calculate distance
 
-        float dlat   = (float)(GPS_home_lat - casicLat);
-        float dlong  = ((float)(GPS_home_lon - casicLon)) * GPS_scale;
+        // Calculate distance
+        dlat         = (float)(GPS_home_lat - casicLat);
+        dlong        = ((float)(GPS_home_lon - casicLon)) * GPS_scale;
         GPS_distance = sqrtf(dlat * dlat + dlong * dlong) * LOCATION_SCALING_FACTOR;
+
         // calculate bearing
-        int32_t off_x = (int32_t)(_casicBuffer.nav_pv.lon * 10000000) - GPS_home_lon;
-        int32_t off_y = ((int32_t)(_casicBuffer.nav_pv.lat * 10000000) - GPS_home_lat) / GPS_scale;
-        GPS_bearing   = 90 + atan2f(-off_y, off_x) * 57.2957795f; // in degree
+        off_x       = (int32_t)(_casicBuffer.nav_pv.lon * 10000000) - GPS_home_lon;
+        off_y       = ((int32_t)(_casicBuffer.nav_pv.lat * 10000000) - GPS_home_lat) / GPS_scale;
+        GPS_bearing = 90 + atan2f(-off_y, off_x) * 57.2957795f; // in degree
+
         if (GPS_bearing < 0)
             GPS_bearing += 360;
+
         // calculate cumulative flow
         int32_t deltaDistanceCm = GpsDistanceCm(GPS_last_lat - casicLat, GPS_last_lon - casicLon);
         if (deltaDistanceCm > 200 && deltaDistanceCm < 100000)
@@ -821,22 +851,17 @@ bool GPS::parseGpsCasic(void) // move the data from buffer to the different fiel
             GPS_last_lat = casicLat;
             GPS_last_lon = casicLon;
         }
+
         sent2Core0(GPS_CUMUL_DIST, GPS_cumulativeDistCm * 0.01); // store in m
+
+        GPS_fix = true;
+
         return true;
     }
     else
     {
-        GPS_fix = false;
-        // fields[GROUNDSPEED].value  = 0;        // in cm/sec
-        // fields[LONGITUDE].value = 0;           // in degree with 7 decimals
-        // fields[LATITUDE].value = 0;            // in degree with 7 decimals
-        // fields[ALTITUDE].value = 0 ;    // in mm
-        // fields[HEADING].value = 0 ;     // Heading 2D deg with 5 decimals
-        // fields[GROUNDSPEED].available  = false;
-        // fields[LONGITUDE].available = false;
-        // fields[LATITUDE].available = false;
-        // fields[ALTITUDE].available = false;
-        // fields[HEADING].available = false;
+        GPS_fix      = false;
+        GPS_fix_type = FIX_NONE;
     }
 
     return false;

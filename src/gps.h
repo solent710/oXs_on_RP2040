@@ -135,30 +135,30 @@ struct __attribute__((__packed__)) casic_nav_pv_info
     uint16_t header;     // Header = 0xBA 0XCE
     uint16_t length;     // length of payload 80 = 0X50
     uint16_t identifier; // Bitmask, Chip hardware generation 0:Antaris, 1:u-blox 5, 2:u-blox 6
-    uint32_t runTime;    //
-    uint8_t  posValid;   //
-    uint8_t  velValid;
-    uint8_t  system;
-    uint8_t  numSV; // number of satellite in solution
-    uint8_t  numSVGPS;
-    uint8_t  numSVBDS;
-    uint8_t  numSVGLN;
-    uint8_t  reserve;
-    float    pDop;
-    double   lon;    // degree
-    double   lat;    // degree
-    float    height; // m
-    float    sepGeoid;
-    float    hAcc;
-    float    vAcc;
-    float    veIN;
-    float    veIE;
-    float    veIU;
-    float    speed3D; // speed m/s
-    float    speed2D; // speed m/s
-    float    heading; // degree
-    float    sAcc;
-    float    cAcc;
+    uint32_t runTime;    // Running time from power-on/reset
+    uint8_t  posValid;   // Position status
+    uint8_t  velValid;   // Speed status
+    uint8_t  system;     // Multi-mode receiving mode mask of the receiver GPS/BDS/GLONASS
+    uint8_t  numSV;      // number of satellite in solution
+    uint8_t  numSVGPS;   // Number of GPS satellites participating in the calculation
+    uint8_t  numSVBDS;   // Number of BDS satellites participating in the calculation
+    uint8_t  numSVGLN;   // Number of GLONASS satellites participating in the calculation
+    uint8_t  reserve;    // Reserved
+    float    pDop;       // longitude
+    double   lon;        // Location DO
+    double   lat;        // latitude
+    float    height;     // Earth height (take ellipsoid as reference)
+    float    sepGeoid;   // Altitude abnormality (the difference between the ground height and the altitude)
+    float    hAcc;       // Variance of horizontal position accuracy error
+    float    vAcc;       // Variance of vertical position accuracy error
+    float    veIN;       // North speed in ENU coordinate system
+    float    veIE;       // East velocity in ENU coordinate system
+    float    veIU;       // Sky speed in ENU coordinate system
+    float    speed3D;    // speed m/s
+    float    speed2D;    // speed m/s
+    float    heading;    // degree
+    float    sAcc;       // Variance of accuracy error of ground velocity
+    float    cAcc;       // Variance of accuracy error of heading (variance of heading)
     uint32_t checksum;
 }; // structure use by casic GPS
 
@@ -187,6 +187,16 @@ struct __attribute__((__packed__)) casic_nav_pv_info
 #define FIX_3D                 3
 #define FIX_GPS_DEAD_RECKONING 4
 #define FIX_TIME               5
+
+#define CASIC_FIX_NONE           0
+#define CASIC_FIX_EXTERNAL       1
+#define CASIC_FIX_ESTIMATED      2
+#define CASIC_FIX_LAST_POSITION  3
+#define CASIC_FIX_DEAD_RECKONING 4
+#define CASIC_FIX_QUICK_MODE     5
+#define CASIC_FIX_2D             6
+#define CASIC_FIX_3D             7
+#define CASIC_FIX_GNSS_DR        8
 
 #define NAV_STATUS_FIX_VALID 1
 
