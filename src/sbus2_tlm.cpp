@@ -1,9 +1,10 @@
+
 #include "pico/stdlib.h"
 #include "stdio.h"  // used by printf
 #include "config.h"
 #include "param.h"
-#include "hardware/uart.h"
 #include "hardware/timer.h"
+#include "hardware/uart.h"
 #include "hardware/irq.h"
 #include "sbus2_tlm.h"
 #include "math.h"

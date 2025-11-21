@@ -1,7 +1,7 @@
 #include "pico/stdlib.h"
 #include "stdio.h"  // used by printf
-#include "hardware/uart.h"
 #include "hardware/irq.h"
+#include "hardware/uart.h"
 #include "pico/util/queue.h"
 #include "sbus_in.h"
 //#include "crsf.h"
